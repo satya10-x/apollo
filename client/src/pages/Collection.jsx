@@ -113,7 +113,7 @@ export default function CollectionPage({ type }) {
               : "Completed research reports will appear here, ready to read and export."
           }
           action={
-            <Link to="/" className="button secondary">
+            <Link to="/workspace" className="button secondary">
               Start exploring <ArrowRight size={15} />
             </Link>
           }

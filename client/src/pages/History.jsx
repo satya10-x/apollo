@@ -50,7 +50,7 @@ export default function HistoryPage() {
         title="Research history"
         description="Every question is a new starting point."
         action={
-          <Link to="/" className="button primary">
+          <Link to="/workspace" className="button primary">
             <Plus size={16} /> New research
           </Link>
         }
@@ -124,7 +124,7 @@ export default function HistoryPage() {
               : "Your research sessions will be saved here as you explore."
           }
           action={
-            <Link className="button secondary" to="/">
+            <Link className="button secondary" to="/workspace">
               Start a research <ArrowRight size={15} />
             </Link>
           }

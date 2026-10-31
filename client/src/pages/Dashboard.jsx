@@ -45,7 +45,7 @@ const modes = [
     time: "Advanced web search",
   },
 ];
-export default function Dashboard({ health }) {
+export default function Dashboard({ health, workspace = false }) {
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState("standard");
   const [rounds, setRounds] = useState(3);
@@ -104,20 +104,51 @@ export default function Dashboard({ health }) {
   }
   return (
     <>
-      <MastersLanding />
+      {!workspace && <MastersLanding />}
       <div className="masters-desk" id="research-desk">
-        <div className="masters-chapter">
-          <span>01 / THE RESEARCH DESK</span>
-          <span>A QUESTION IS A BEGINNING.</span>
-        </div>
+        {workspace && (
+          <div className="workspace-intro">
+            <div className="workspace-signal">
+              <span /> INTELLIGENCE, ORCHESTRATED
+            </div>
+            <div className="orbital-system" aria-hidden="true">
+              <span />
+              <span />
+              <span />
+              <Orbit size={46} strokeWidth={1} />
+              <i className="orbit-point one" />
+              <i className="orbit-point two" />
+              <i className="orbit-point three" />
+            </div>
+            <span className="workspace-coordinate">APOLLO / RESEARCH OS</span>
+          </div>
+        )}
+        {!workspace && (
+          <div className="masters-chapter">
+            <span>01 / THE RESEARCH DESK</span>
+            <span>A QUESTION IS A BEGINNING.</span>
+          </div>
+        )}
         <PageHeading
-          eyebrow="YOUR INTELLIGENCE WORKSPACE"
+          eyebrow={
+            workspace
+              ? "YOUR NEXT DISCOVERY STARTS HERE"
+              : "YOUR INTELLIGENCE WORKSPACE"
+          }
           title={
-            <>
-              Big questions.
-              <br />
-              Deeper <span className="accent-serif">understanding.</span>
-            </>
+            workspace ? (
+              <>
+                Think deeper.
+                <br />
+                <span className="accent-serif">See further.</span>
+              </>
+            ) : (
+              <>
+                Big questions.
+                <br />
+                Deeper <span className="accent-serif">understanding.</span>
+              </>
+            )
           }
           description="Turn a spark of curiosity into evidence-backed intelligence."
           action={
@@ -126,6 +157,19 @@ export default function Dashboard({ health }) {
             </div>
           }
         />
+        {workspace && (
+          <div className="workspace-quicklinks">
+            <Link to="/history">
+              <Orbit size={15} /> Research history <ArrowUpRight size={14} />
+            </Link>
+            <Link to="/sources">
+              <Library size={15} /> Source library <ArrowUpRight size={14} />
+            </Link>
+            <Link to="/reports">
+              <FileText size={15} /> Reports <ArrowUpRight size={14} />
+            </Link>
+          </div>
+        )}
         <section className="research-composer">
           <div className="composer-label">
             <span>
@@ -318,10 +362,12 @@ export default function Dashboard({ health }) {
           />
           <AgentCards />
         </section>
-        <div className="masters-colophon">
-          <span>APOLLO — DEEP RESEARCH META-AGENT</span>
-          <a href="#research-desk">RETURN TO THE DESK ↑</a>
-        </div>
+        {!workspace && (
+          <div className="masters-colophon">
+            <span>APOLLO — DEEP RESEARCH META-AGENT</span>
+            <a href="#research-desk">RETURN TO THE DESK ↑</a>
+          </div>
+        )}
       </div>
     </>
   );

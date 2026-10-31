@@ -1,5 +1,12 @@
 import { useEffect, useState, useRef } from "react";
-import { NavLink, Link, Routes, Route, useLocation } from "react-router-dom";
+import {
+  NavLink,
+  Link,
+  Routes,
+  Route,
+  useLocation,
+  useNavigate,
+} from "react-router-dom";
 import {
   ArrowUpRight,
   ArrowRight,
@@ -27,6 +34,23 @@ export default function App() {
   const [mobile, setMobile] = useState(false);
   const [settings, setSettings] = useState(false);
   const location = useLocation();
+  const navigate = useNavigate();
+  useEffect(() => {
+    const shortcut = (event) => {
+      if (
+        (event.metaKey || event.ctrlKey) &&
+        event.key.toLowerCase() === "k" &&
+        location.pathname !== "/"
+      ) {
+        event.preventDefault();
+        navigate("/workspace#topic");
+        requestAnimationFrame(() => document.getElementById("topic")?.focus());
+      }
+      if (event.key === "Escape") setMobile(false);
+    };
+    window.addEventListener("keydown", shortcut);
+    return () => window.removeEventListener("keydown", shortcut);
+  }, [location.pathname, navigate]);
   const modalRef = useRef(null);
   useEffect(() => {
     if (!settings) return;
@@ -118,7 +142,7 @@ export default function App() {
   const ready = health?.database === "connected" && health?.researchConfigured;
   return (
     <div
-      className={`app-shell masters-edition ${location.pathname === "/" ? "masters-home" : ""}`}
+      className={`app-shell masters-edition ${location.pathname === "/" ? "masters-home" : "tech-workspace"}`}
     >
       <button
         className="mobile-menu"
@@ -146,12 +170,12 @@ export default function App() {
           </div>
           <ChevronDown size={14} />
         </div>
-        <Link to="/" className="new-research">
+        <Link to="/workspace#topic" className="new-research">
           <Plus size={17} /> New research <span>⌘ K</span>
         </Link>
         <div className="nav-label">WORKSPACE</div>
         <nav>
-          <NavLink to="/" end>
+          <NavLink to="/workspace" end>
             <LayoutDashboard size={18} /> Overview
           </NavLink>
           <NavLink to="/history">
@@ -196,7 +220,7 @@ export default function App() {
           <div className="breadcrumb">
             Workspace <ChevronRight size={13} />
             <span>
-              {location.pathname === "/"
+              {["/", "/workspace"].includes(location.pathname)
                 ? "Overview"
                 : location.pathname.includes("/research/")
                   ? "Research session"
@@ -223,9 +247,13 @@ export default function App() {
             <span className="top-avatar">Y</span>
           </div>
         </div>
-        <main>
+        <main key={location.pathname}>
           <Routes>
             <Route path="/" element={<Dashboard health={health} />} />
+            <Route
+              path="/workspace"
+              element={<Dashboard health={health} workspace />}
+            />
             <Route path="/history" element={<HistoryPage />} />
             <Route
               path="/sources"
