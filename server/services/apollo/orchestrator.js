@@ -1,4 +1,4 @@
-import { providerDiagnostic } from "../provider-errors.js";
+import { ProviderError, providerDiagnostic } from "../provider-errors.js";
 import { blueprintSchema } from "./schemas.js";
 import {
   resolveLimits,
@@ -62,6 +62,41 @@ export function createOrchestrator({ repository, providers, now = Date.now }) {
       signal: AbortSignal.any([deadline.signal, ...(signal ? [signal] : [])]),
       now,
     });
+    const startedMs = new Date(state.startedAt).getTime();
+    const gatheringBudget = budget.forPhase(
+      startedMs + limits.timeoutMs * 0.6,
+      "research_time_reserve",
+    );
+    const reviewBudget = budget.forPhase(
+      startedMs + limits.timeoutMs * 0.85,
+      "review_time_reserve",
+    );
+    const writingBudget = budget.forPhase(
+      startedMs + limits.timeoutMs * 0.9,
+      "report_time_reserve",
+    );
+    // Optional prose generation must not consume the time needed to assemble
+    // and persist already-verified claims. No new claims are invented here.
+    const reportProviders = {
+      ...providers,
+      async generateJSON(options) {
+        try {
+          writingBudget.check();
+          return await providers.generateJSON({
+            ...options,
+            budget: writingBudget,
+          });
+        } catch (error) {
+          if (error.code === "report_time_reserve")
+            throw new ProviderError(
+              "backend",
+              "report_time_reserve",
+              "Report time reserved for assembling verified claims.",
+            );
+          throw error;
+        }
+      },
+    };
     let sources = [];
     let evidence = [];
     const collectTask = createAthenaRetriever({
@@ -169,117 +204,142 @@ export function createOrchestrator({ repository, providers, now = Date.now }) {
                 Math.floor((limits.maxSources - sources.length) * 0.7),
               );
         let task;
-        while ((task = nextTask(state.tasks, round))) {
-          budget.check();
-          task.status = "running";
-          state.stage = "searching";
-          await checkpoint("Apollo", `Dispatching ${task.question}`);
-          const section = state.blueprint.sections.find(
-            (section) => section.id === task.sectionId,
-          );
-          const remainingTasks = state.tasks.filter(
-            (item) =>
-              ["pending", "running"].includes(item.status) &&
-              item.round <= round,
-          ).length;
-          const sourceAllowance = Math.max(
-            1,
-            Math.floor(
-              (roundSourceCeiling - sources.length) /
-                Math.max(remainingTasks, 1),
-            ),
-          );
-          await collectTask({
-            state,
-            task,
-            section,
-            sources,
-            evidence,
-            budget,
-            sourceAllowance,
-            checkpoint,
-          });
-          const taskSourceIds = new Set(task.sourceIds);
-          if (!task.sourceIds.length) {
-            task.status = "skipped";
-            task.reason =
-              state.usage.searchRequests >= limits.maxSearchRequests
-                ? "search_limit"
-                : sources.length >= limits.maxSources
-                  ? "source_limit"
-                  : "no_usable_evidence";
+        try {
+          while ((task = nextTask(state.tasks, round))) {
+            gatheringBudget.check();
+            task.status = "running";
+            state.stage = "searching";
+            await checkpoint("Apollo", `Dispatching ${task.question}`);
+            const section = state.blueprint.sections.find(
+              (section) => section.id === task.sectionId,
+            );
+            const remainingTasks = state.tasks.filter(
+              (item) =>
+                ["pending", "running"].includes(item.status) &&
+                item.round <= round,
+            ).length;
+            const sourceAllowance = Math.max(
+              1,
+              Math.floor(
+                (roundSourceCeiling - sources.length) /
+                  Math.max(remainingTasks, 1),
+              ),
+            );
+            await collectTask({
+              state,
+              task,
+              section,
+              sources,
+              evidence,
+              budget: gatheringBudget,
+              sourceAllowance,
+              checkpoint,
+            });
+            const taskSourceIds = new Set(task.sourceIds);
+            if (!task.sourceIds.length) {
+              task.status = "skipped";
+              task.reason =
+                state.usage.searchRequests >= limits.maxSearchRequests
+                  ? "search_limit"
+                  : sources.length >= limits.maxSources
+                    ? "source_limit"
+                    : "no_usable_evidence";
+              await checkpoint(
+                "Athena",
+                `No evidence available for: ${task.question}`,
+              );
+              continue;
+            }
+            state.stage = "synthesizing";
             await checkpoint(
               "Athena",
-              `No evidence available for: ${task.question}`,
+              `Assessing evidence for: ${task.question}`,
             );
-            continue;
-          }
-          state.stage = "synthesizing";
-          await checkpoint(
-            "Athena",
-            `Assessing evidence for: ${task.question}`,
-          );
-          const dependencyFindings = state.findings.filter((finding) =>
-            task.dependsOn.includes(finding.sectionId),
-          );
-          const contextSourceIds = new Set(
-            dependencyFindings.flatMap((finding) =>
-              finding.claims.flatMap((claim) => claim.sourceIds),
-            ),
-          );
-          let finding;
-          try {
-            finding = await researchTask({
-              task,
-              evidence: evidence.filter(
-                (item) =>
-                  task.evidenceIds.includes(String(item._id)) ||
-                  contextSourceIds.has(String(item.source)),
+            const dependencyFindings = state.findings.filter((finding) =>
+              task.dependsOn.includes(finding.sectionId),
+            );
+            const contextSourceIds = new Set(
+              dependencyFindings.flatMap((finding) =>
+                finding.claims.flatMap((claim) => claim.sourceIds),
               ),
-              sources: sources.filter(
-                (source) =>
-                  taskSourceIds.has(String(source._id)) ||
-                  contextSourceIds.has(String(source._id)),
-              ),
-              providers,
-              budget,
-              dependencies: {
-                findings: dependencyFindings,
-                unresolvedSections: task.dependsOn.filter(
-                  (sectionId) =>
-                    !dependencyFindings.some(
-                      (finding) =>
-                        finding.sectionId === sectionId &&
-                        finding.claims.length,
-                    ),
+            );
+            let finding;
+            try {
+              finding = await researchTask({
+                task,
+                evidence: evidence.filter(
+                  (item) =>
+                    task.evidenceIds.includes(String(item._id)) ||
+                    contextSourceIds.has(String(item.source)),
                 ),
-              },
+                sources: sources.filter(
+                  (source) =>
+                    taskSourceIds.has(String(source._id)) ||
+                    contextSourceIds.has(String(source._id)),
+                ),
+                providers,
+                budget: gatheringBudget,
+                dependencies: {
+                  findings: dependencyFindings,
+                  unresolvedSections: task.dependsOn.filter(
+                    (sectionId) =>
+                      !dependencyFindings.some(
+                        (finding) =>
+                          finding.sectionId === sectionId &&
+                          finding.claims.length,
+                      ),
+                  ),
+                },
+              });
+            } catch (error) {
+              if (error instanceof ExecutionStopped) throw error;
+              task.status = "skipped";
+              task.reason = "finding_synthesis_failed";
+              task.providerError = providerDiagnostic(error);
+              // Retrying unavailable models for every task creates a search/retry
+              // storm. The provider service has already exhausted its bounded recovery.
+              if (
+                [
+                  "provider_rate_limit",
+                  "provider_unavailable",
+                  "provider_request_too_large",
+                ].includes(error.code)
+              )
+                throw error;
+              task.retrievalWarnings.push(
+                "Retrieved evidence is available, but structured finding synthesis failed. Hermes must inspect the actual records without assuming claim support.",
+              );
+              await checkpoint(
+                "Apollo",
+                task.providerError
+                  ? `Athena synthesis failed: ${task.providerError.reason}`
+                  : "Athena synthesis failed. Preserving the retrieved evidence for Hermes review.",
+              );
+              continue;
+            }
+            recordModel(finding, "athena_finding");
+            state.findings.push({
+              taskId: task.id,
+              sectionId: task.sectionId,
+              ...finding.data,
             });
-          } catch (error) {
-            if (error instanceof ExecutionStopped) throw error;
-            task.status = "skipped";
-            task.reason = "finding_synthesis_failed";
-            task.providerError = providerDiagnostic(error);
-            task.retrievalWarnings.push(
-              "Retrieved evidence is available, but structured finding synthesis failed. Hermes must inspect the actual records without assuming claim support.",
-            );
-            await checkpoint(
-              "Apollo",
-              task.providerError
-                ? `Athena synthesis failed: ${task.providerError.reason}`
-                : "Athena synthesis failed. Preserving the retrieved evidence for Hermes review.",
-            );
-            continue;
+            task.status = "completed";
+            task.completedAt = new Date(now());
+            await checkpoint("Athena", `Task complete: ${task.question}`);
           }
-          recordModel(finding, "athena_finding");
-          state.findings.push({
-            taskId: task.id,
-            sectionId: task.sectionId,
-            ...finding.data,
-          });
-          task.status = "completed";
-          task.completedAt = new Date(now());
-          await checkpoint("Athena", `Task complete: ${task.question}`);
+        } catch (error) {
+          if (error.code !== "research_time_reserve") throw error;
+          state.stopReason = "research_time_reserve";
+          for (const pending of state.tasks) {
+            if (["pending", "running"].includes(pending.status)) {
+              pending.status = "skipped";
+              pending.reason = state.stopReason;
+            }
+          }
+          await checkpoint(
+            "Apollo",
+            "Research time reserved for Hermes verification and report completion.",
+          );
         }
         if (
           state.tasks.some(
@@ -301,12 +361,23 @@ export function createOrchestrator({ repository, providers, now = Date.now }) {
           sources,
           evidence,
           providers,
-          budget,
+          budget: reviewBudget,
           now: new Date(now()),
           onProgress: async (message) => checkpoint("Hermes", message),
         });
         recordModel(reviewed, "hermes_review");
         const review = reviewed.data;
+        if (
+          !review.inspection.limitReason &&
+          (state.stopReason === "research_time_reserve" ||
+            gatheringBudget.remainingMs() === 0)
+        ) {
+          state.stopReason = "research_time_reserve";
+          Object.assign(
+            review,
+            completionDecision(review, state, { stopReason: state.stopReason }),
+          );
+        }
         await checkpoint(
           "Hermes",
           `Evidence review finished: ${review.decision.replaceAll("_", " ").toLowerCase()}. ${review.gaps.length} gaps identified; ${review.contradictions.length} source disagreements inspected.`,
@@ -381,7 +452,7 @@ export function createOrchestrator({ repository, providers, now = Date.now }) {
         state,
         sources,
         evidence,
-        providers,
+        providers: reportProviders,
         budget,
         onProgress: async (progress) => {
           state.stage = progress.stage;

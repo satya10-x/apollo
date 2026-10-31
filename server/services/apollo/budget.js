@@ -19,6 +19,24 @@ export class ExecutionBudget {
     this.signal = signal;
     this.now = now;
   }
+  forPhase(deadlineAt, code) {
+    const scoped = Object.create(this);
+    scoped.phaseDeadline = Math.min(
+      Number(deadlineAt),
+      this.phaseDeadline ?? Infinity,
+    );
+    scoped.phaseCode = code;
+    return scoped;
+  }
+  remainingMs() {
+    return Math.max(
+      0,
+      Math.min(
+        new Date(this.state.deadlineAt).getTime(),
+        this.phaseDeadline ?? Infinity,
+      ) - this.now(),
+    );
+  }
   check() {
     if (this.signal?.aborted)
       throw this.signal.reason instanceof ExecutionStopped
@@ -28,6 +46,11 @@ export class ExecutionBudget {
       throw new ExecutionStopped(
         "timeout",
         "Research reached its execution timeout.",
+      );
+    if (this.now() >= (this.phaseDeadline ?? Infinity))
+      throw new ExecutionStopped(
+        this.phaseCode,
+        "Stopping optional work to reserve time for evidence review and report completion.",
       );
   }
   reserveLLM(system, prompt, outputTokens, pricing) {
@@ -124,10 +147,7 @@ export class ExecutionBudget {
     return AbortSignal.any([
       ...(this.signal ? [this.signal] : []),
       AbortSignal.timeout(
-        Math.max(
-          1,
-          Math.min(ms, new Date(this.state.deadlineAt).getTime() - this.now()),
-        ),
+        Math.max(1, Math.floor(Math.min(ms, this.remainingMs()))),
       ),
     ]);
   }

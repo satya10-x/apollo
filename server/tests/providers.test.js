@@ -426,3 +426,29 @@ test("oversized requests are not retried and retain a safe actionable diagnostic
   );
   assert.equal(calls, 1);
 });
+
+test("a throttled fallback does not mask a recoverable primary request-size rejection", async () => {
+  const service = createProviderService({
+    config,
+    fetchImpl: async (url) =>
+      url.includes("groq.com")
+        ? response({}, 413)
+        : new Response("{}", {
+            status: 429,
+            headers: { "retry-after": "3600" },
+          }),
+  });
+  await assert.rejects(
+    service.generateJSON({
+      system: "Return JSON",
+      input: {},
+      schema,
+      budget: budget(),
+    }),
+    (error) => {
+      assert.equal(error.code, "provider_request_too_large");
+      assert.match(error.message, /groq HTTP 413; gemini HTTP 429/);
+      return true;
+    },
+  );
+});

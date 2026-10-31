@@ -76,7 +76,8 @@ export function createProviderService({
         ? ["gemini"]
         : []),
     ];
-    let lastError;
+    let lastError, sizeError;
+    const failures = new Map();
     // Try configured alternatives first, then retry a throttled provider once.
     const attempts = [...providers];
     const retried = new Set();
@@ -95,13 +96,14 @@ export function createProviderService({
       const retryAt = cooldowns.get(provider) || 0;
       const waitMs = retryAt - now();
       if (waitMs > 0) {
-        const remainingMs = new Date(budget.state.deadlineAt).getTime() - now();
+        const remainingMs = budget.remainingMs();
         lastError = new ProviderError(
           provider,
           "provider_rate_limit",
           `${provider} is rate limited. Evidence is saved; retry after the provider cooldown or use another configured provider.`,
           { httpStatus: 429, retryAt },
         );
+        failures.set(provider, lastError);
         // Don't consume the execution deadline waiting on an unavailable provider
         // while an alternative can still answer.
         if (attempts.slice(attempt + 1).some((other) => other !== provider)) {
@@ -198,6 +200,7 @@ export function createProviderService({
               `${provider} returned HTTP 429. Provider rate limit reached; evidence is saved. Retry after the provider cooldown or configure another provider.`,
               { httpStatus: 429, retryAt },
             );
+            failures.set(provider, lastError);
             if (!retried.has(provider)) {
               attempts.push(provider);
               retried.add(provider);
@@ -243,11 +246,25 @@ export function createProviderService({
                 "provider_invalid_output",
                 `${provider} returned invalid structured output or the request failed.`,
               );
+        failures.set(provider, lastError);
+        if (lastError.code === "provider_request_too_large")
+          sizeError = lastError;
       }
     }
+    // A quota-limited fallback must not hide a primary size error: the caller
+    // can shrink that request, unlike a global provider outage.
+    const failure = sizeError || lastError;
+    if (failure) {
+      failure.attempts = [...failures.entries()].map(([provider, error]) => ({
+        provider,
+        code: error.code,
+        httpStatus: error.httpStatus,
+      }));
+      if (failures.size > 1)
+        failure.message += ` Provider attempts: ${failure.attempts.map((item) => `${item.provider} ${item.httpStatus ? `HTTP ${item.httpStatus}` : item.code || "unavailable"}`).join("; ")}.`;
+    }
     throw (
-      lastError ||
-      new AppError("No language model provider is configured.", 503)
+      failure || new AppError("No language model provider is configured.", 503)
     );
   }
   const { search } = createSearchService({ config, fetchImpl });

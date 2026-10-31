@@ -120,3 +120,27 @@ surfaces that failure instead of replacing it with a generic evidence/round-limi
 message. Partial reviewed findings retain the existing publication checks.
 Already-failed sessions retain their saved evidence and status; these changes
 apply on a new research run after deploying the backend.
+
+### Execution time reserves and provider outages
+
+The execution deadline is still a hard limit. Gathering stops at 60% of the
+allocated time, Hermes model calls stop at 85%, and optional report model calls
+stop at 90%. All phases share token/search accounting and cancellation. The
+remaining time is reserved for assembling validated blocks and persistence;
+phases cannot extend the configured deadline. A time-limited review retains
+finished audits and discloses uninspected evidence. Report writers can use exact
+reviewed claims and deterministic assembly when their model-call window expires.
+This never turns unreviewed evidence into a verified claim.
+
+After the provider service exhausts recovery for a rate limit or unavailable
+provider, Athena stops further tasks and Hermes stops further audit batches.
+These failures do not schedule follow-up searches: collecting more sources does
+not restore model availability. Non-systemic invalid output retains the existing
+per-task/per-batch failure behavior. If Groq rejects an oversized request while
+Gemini is throttled, the size error is retained alongside both provider statuses,
+so Athena/Hermes can shrink the request instead of hiding it behind the last
+fallback error. Athena retries progressively smaller evidence sets with normal
+citation validation; an indivisible request fails explicitly.
+
+An exhausted provider quota still requires available provider capacity. Local
+regression tests use simulated model responses and elapsed time, not live keys.

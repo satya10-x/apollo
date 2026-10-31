@@ -68,7 +68,6 @@ export async function performReview({
     );
     const batches = sectionBatches(section, corpus, state);
     for (const batch of batches) {
-      if (limitReason) break;
       const input = {
         blueprint: blueprintContext(state.blueprint),
         section,
@@ -87,6 +86,7 @@ export async function performReview({
         audits.push({ ...cached, reused: true });
         continue;
       }
+      if (limitReason) continue;
       try {
         const result = await providers.generateJSON({
           system:
@@ -128,6 +128,16 @@ export async function performReview({
             throw error;
           limitReason = error.code;
         }
+        // A failed provider is not an evidence gap. Don't spend one retry cycle
+        // per remaining batch (or trigger another search round).
+        if (
+          [
+            "provider_rate_limit",
+            "provider_unavailable",
+            "provider_request_too_large",
+          ].includes(error.code)
+        )
+          limitReason = error.code;
         errors.push({
           sectionId: section.id,
           ...providerDiagnostic(error),

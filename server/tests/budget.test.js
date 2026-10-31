@@ -68,3 +68,22 @@ test("requests fail immediately after cancellation or deadline", () => {
   expired.state.deadlineAt = new Date(0);
   assert.throws(() => expired.budget.check(), { code: "timeout" });
 });
+
+test("phase deadlines share accounting but leave the overall deadline available for finalization", () => {
+  let now = 0;
+  const state = {
+    deadlineAt: new Date(10000),
+    limits: { maxTokens: 10000, maxSearchRequests: 2 },
+    usage: emptyUsage(),
+  };
+  const budget = new ExecutionBudget(state, { now: () => now });
+  const scoped = budget.forPhase(6000, "research_time_reserve");
+  scoped.reserveSearch();
+  assert.equal(budget.state.usage.searchRequests, 1);
+  now = 6001;
+  assert.throws(() => scoped.check(), { code: "research_time_reserve" });
+  assert.doesNotThrow(() => budget.check());
+  assert.equal(budget.remainingMs(), 3999);
+  now = 10001;
+  assert.throws(() => budget.check(), { code: "timeout" });
+});

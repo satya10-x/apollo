@@ -107,9 +107,15 @@ function harness({
         input: structuredClone(options.input),
       });
       if (generate)
-        await generate(options, () => {
-          time += session.limits.timeoutMs + 1;
-        });
+        await generate(
+          options,
+          () => {
+            time += session.limits.timeoutMs + 1;
+          },
+          (ms) => {
+            time += ms;
+          },
+        );
       let data;
       if (options.system.startsWith("APOLLO_SECTION_WRITER"))
         data = writerResponse(options.input);
@@ -160,6 +166,7 @@ function harness({
         };
       data = options.schema.parse(data);
       options.validate?.(data);
+      options.budget.check();
       return { data, provider: "test", model: "test-model" };
     },
   };
@@ -510,4 +517,86 @@ test("cancellation at plan approval never dispatches Athena", async () => {
   assert.equal(state.status, "cancelled");
   assert.equal(h.calls.filter((call) => call.type === "search").length, 0);
   assert.equal(h.report, null);
+});
+
+test("provider outages stop new searches instead of generating rounds of artificial evidence gaps", async () => {
+  const { ProviderError } = await import("../services/provider-errors.js");
+  const h = harness({
+    generate: async (options) => {
+      if (options.system.startsWith("You are Athena"))
+        throw new ProviderError(
+          "gemini",
+          "provider_rate_limit",
+          "Gemini HTTP 429: quota exhausted.",
+          { httpStatus: 429 },
+        );
+    },
+  });
+  const result = await h.run();
+  assert.equal(result.stopReason, "provider_rate_limit");
+  assert.match(result.error, /429/);
+  assert.equal(result.usage.searchRequests, 1);
+  assert.equal(result.round, 1);
+  assert.equal(h.report, null);
+  assert.equal(result.pendingTasks.length, 0);
+  assert.ok(result.sourceIds.length > 0);
+});
+
+test("slow collection leaves time to review and publish verified findings with incomplete coverage disclosed", async () => {
+  const h = harness({
+    generate: async (options, expire, advance) => {
+      if (options.system.startsWith("You are Athena")) advance(130000);
+    },
+  });
+  const result = await h.run();
+  assert.equal(result.status, "completed");
+  assert.equal(result.stopReason, "research_time_reserve");
+  assert.ok(
+    result.tasks.some((task) => task.reason === "research_time_reserve"),
+  );
+  assert.equal(result.reviews.at(-1).decision, "INCOMPLETE_LIMIT_REACHED");
+  assert.ok(h.report.sections.some((section) => section.blocks.length));
+  assert.ok(
+    h.report.limitations.some((text) => text.includes("research time reserve")),
+  );
+});
+
+test("a slow Hermes review preserves completed audits and produces a qualified report before timeout", async () => {
+  const h = harness({
+    generate: async (options, expire, advance) => {
+      if (options.system.includes("HERMES_SECTION_AUDIT")) advance(140000);
+    },
+  });
+  const result = await h.run();
+  assert.equal(result.status, "completed");
+  assert.equal(result.stopReason, "review_time_reserve");
+  assert.equal(result.reviews.at(-1).inspection.complete, false);
+  assert.ok(h.report.sections.some((section) => section.blocks.length));
+  assert.ok(h.report.sections.some((section) => !section.blocks.length));
+});
+
+test("slow optional report writers fall back to reviewed claims without further model calls", async () => {
+  const h = harness({
+    generate: async (options, expire, advance) => {
+      if (options.system.startsWith("APOLLO_SECTION_WRITER")) advance(550000);
+    },
+  });
+  const result = await h.run();
+  assert.equal(result.status, "completed");
+  assert.equal(
+    h.calls.filter((call) => call.system?.startsWith("APOLLO_SECTION_WRITER"))
+      .length,
+    1,
+  );
+  assert.equal(
+    h.calls.filter((call) => call.system?.startsWith("APOLLO_REPORT_ASSEMBLER"))
+      .length,
+    0,
+  );
+  assert.ok(
+    h.report.sections
+      .filter((section) => section.blocks.length)
+      .every((section) => section.writerMode === "extractive_fallback"),
+  );
+  assert.equal(h.report.generation.assemblerMode, "deterministic_assembly");
 });

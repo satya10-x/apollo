@@ -505,3 +505,23 @@ test("oversized Hermes audits split into smaller citation-complete batches", asy
   assert.equal(result.data.inspection.inspectedEvidenceRecords, 8);
   assert.equal(result.data.inspection.errors.length, 0);
 });
+
+test("provider outage ends an audit after bounded provider recovery without triggering follow-up research", async () => {
+  const { ProviderError } = await import("../services/provider-errors.js");
+  let calls = 0;
+  const { data } = await performReview({
+    ...hermesFixture(),
+    providers: {
+      generateJSON: async () => {
+        calls++;
+        throw new ProviderError("gemini", "provider_rate_limit", "HTTP 429.", {
+          httpStatus: 429,
+        });
+      },
+    },
+  });
+  assert.equal(calls, 1);
+  assert.equal(data.decision, "INCOMPLETE_LIMIT_REACHED");
+  assert.equal(data.limitReason, "provider_rate_limit");
+  assert.equal(data.inspection.inspectedEvidenceRecords, 0);
+});
