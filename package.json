@@ -1,0 +1,39 @@
+{
+  "name": "apollo-deep-research",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "client"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n api,web \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:server": "node --watch server/index.js",
+    "dev:client": "npm run dev -w client",
+    "build": "npm run build -w client",
+    "start": "node server/index.js",
+    "test": "node --test server/tests/*.test.js",
+    "format": "prettier --write client/src server client/vite.config.js package.json README.md",
+    "verify:athena": "node server/scripts/verify-athena.js",
+    "verify:athena:store": "node server/scripts/verify-athena-store.js",
+    "verify:hermes": "node server/scripts/verify-hermes.js",
+    "verify:report-exports": "node server/scripts/verify-report-exports.js"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "dotenv": "^16.6.1",
+    "express": "^5.1.0",
+    "fast-xml-parser": "^5.11.2",
+    "helmet": "^8.1.0",
+    "mongoose": "^8.19.0",
+    "pdfkit": "^0.20.2",
+    "zod": "^4.1.0"
+  },
+  "devDependencies": {
+    "concurrently": "^9.2.0",
+    "prettier": "^3.9.10"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
