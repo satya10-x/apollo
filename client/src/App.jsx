@@ -26,6 +26,7 @@ import {
 import { api } from "./api";
 import { Logo, EmptyState, Badge } from "./components/UI";
 import Dashboard from "./pages/Dashboard";
+import MastersLanding from "./components/MastersLanding";
 import HistoryPage from "./pages/History";
 import CollectionPage from "./pages/Collection";
 import ResearchWorkspace from "./pages/ResearchWorkspace";
@@ -249,11 +250,8 @@ export default function App() {
         </div>
         <main key={location.pathname}>
           <Routes>
-            <Route path="/" element={<Dashboard health={health} />} />
-            <Route
-              path="/workspace"
-              element={<Dashboard health={health} workspace />}
-            />
+            <Route path="/" element={<MastersLanding />} />
+            <Route path="/workspace" element={<Dashboard health={health} />} />
             <Route path="/history" element={<HistoryPage />} />
             <Route
               path="/sources"

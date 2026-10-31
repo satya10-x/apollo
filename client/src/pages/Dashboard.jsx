@@ -20,7 +20,6 @@ import {
   AgentCards,
   SectionTitle,
 } from "../components/UI";
-import MastersLanding from "../components/MastersLanding";
 import SessionList from "../components/SessionList";
 const modes = [
   {
@@ -45,7 +44,7 @@ const modes = [
     time: "Advanced web search",
   },
 ];
-export default function Dashboard({ health, workspace = false }) {
+export default function Dashboard({ health }) {
   const [topic, setTopic] = useState("");
   const [mode, setMode] = useState("standard");
   const [rounds, setRounds] = useState(3);
@@ -104,72 +103,44 @@ export default function Dashboard({ health, workspace = false }) {
   }
   return (
     <>
-      {!workspace && <MastersLanding />}
       <div className="masters-desk" id="research-desk">
-        {workspace && (
-          <div className="workspace-intro">
-            <div className="workspace-signal">
-              <span /> INTELLIGENCE, ORCHESTRATED
-            </div>
-            <div className="orbital-system" aria-hidden="true">
-              <span />
-              <span />
-              <span />
-              <Orbit size={46} strokeWidth={1} />
-              <i className="orbit-point one" />
-              <i className="orbit-point two" />
-              <i className="orbit-point three" />
-            </div>
-            <span className="workspace-coordinate">APOLLO / RESEARCH OS</span>
+        <div className="workspace-intro">
+          <div className="workspace-signal">
+            <span /> INTELLIGENCE, ORCHESTRATED
           </div>
-        )}
-        {!workspace && (
-          <div className="masters-chapter">
-            <span>01 / THE RESEARCH DESK</span>
-            <span>A QUESTION IS A BEGINNING.</span>
+          <div className="orbital-system" aria-hidden="true">
+            <span />
+            <span />
+            <span />
+            <Orbit size={46} strokeWidth={1} />
+            <i className="orbit-point one" />
+            <i className="orbit-point two" />
+            <i className="orbit-point three" />
           </div>
-        )}
+          <span className="workspace-coordinate">APOLLO / RESEARCH OS</span>
+        </div>
         <PageHeading
-          eyebrow={
-            workspace
-              ? "YOUR NEXT DISCOVERY STARTS HERE"
-              : "YOUR INTELLIGENCE WORKSPACE"
-          }
+          eyebrow="YOUR NEXT DISCOVERY STARTS HERE"
           title={
-            workspace ? (
-              <>
-                Think deeper.
-                <br />
-                <span className="accent-serif">See further.</span>
-              </>
-            ) : (
-              <>
-                Big questions.
-                <br />
-                Deeper <span className="accent-serif">understanding.</span>
-              </>
-            )
+            <>
+              Think deeper.
+              <br />
+              <span className="accent-serif">See further.</span>
+            </>
           }
           description="Turn a spark of curiosity into evidence-backed intelligence."
-          action={
-            <div className="heading-tag">
-              <span /> POWERED BY THREE AI AGENTS
-            </div>
-          }
         />
-        {workspace && (
-          <div className="workspace-quicklinks">
-            <Link to="/history">
-              <Orbit size={15} /> Research history <ArrowUpRight size={14} />
-            </Link>
-            <Link to="/sources">
-              <Library size={15} /> Source library <ArrowUpRight size={14} />
-            </Link>
-            <Link to="/reports">
-              <FileText size={15} /> Reports <ArrowUpRight size={14} />
-            </Link>
-          </div>
-        )}
+        <div className="workspace-quicklinks">
+          <Link to="/history">
+            <Orbit size={15} /> Research history <ArrowUpRight size={14} />
+          </Link>
+          <Link to="/sources">
+            <Library size={15} /> Source library <ArrowUpRight size={14} />
+          </Link>
+          <Link to="/reports">
+            <FileText size={15} /> Reports <ArrowUpRight size={14} />
+          </Link>
+        </div>
         <section className="research-composer">
           <div className="composer-label">
             <span>
@@ -362,12 +333,6 @@ export default function Dashboard({ health, workspace = false }) {
           />
           <AgentCards />
         </section>
-        {!workspace && (
-          <div className="masters-colophon">
-            <span>APOLLO — DEEP RESEARCH META-AGENT</span>
-            <a href="#research-desk">RETURN TO THE DESK ↑</a>
-          </div>
-        )}
       </div>
     </>
   );

@@ -1,6 +1,6 @@
 import { Component, lazy, Suspense, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { ArrowDown, Pause, Play } from "lucide-react";
+import { ArrowRight, Pause, Play } from "lucide-react";
 const OldMastersPreloader = lazy(() => import("./vendor/OldMastersPreloader"));
 const figures = [
   {
@@ -41,8 +41,8 @@ class CoverBoundary extends Component {
       <div className="masters-cover-fallback">
         <h1>Apollo</h1>
         <p>Your question. A clearer perspective.</p>
-        <a href="#research-desk">
-          Begin research <ArrowDown size={15} />
+        <a href="/workspace">
+          Begin research <ArrowRight size={15} />
         </a>
       </div>
     ) : (
@@ -135,8 +135,8 @@ export default function MastersLanding() {
             <div className="masters-cover-fallback">
               <h1>Apollo</h1>
               <p>Deep Research Meta-Agent</p>
-              <a href="#research-desk">
-                Enter workspace <ArrowDown size={15} />
+              <a href="/workspace">
+                Enter workspace <ArrowRight size={15} />
               </a>
             </div>
           }
@@ -167,8 +167,8 @@ export default function MastersLanding() {
             }}
             labels={["Curiosity", "Clarity"]}
             nav={[
-              { label: "Research", href: "#research-desk" },
-              { label: "The method", href: "#apollo-method" },
+              { label: "Research", href: "/workspace" },
+              { label: "The method", href: "/workspace#apollo-method" },
               { label: "Archive", href: "/history" },
               { label: "Sources", href: "/sources" },
             ]}
@@ -189,16 +189,16 @@ export default function MastersLanding() {
             ]}
             plate="VOL. 01"
             loadingLabel="Loading artwork"
-            cta={{ label: "Begin research", href: "#research-desk" }}
+            cta={{ label: "Begin research", href: "/workspace" }}
             tilt={paused ? 0 : 1.8}
             paused={paused || !visible}
-            height="100svh"
+            height="100%"
           />
         </Suspense>
       </CoverBoundary>
       <div className="masters-motion">
-        <a href="#research-desk" aria-label="Scroll to research workspace">
-          <ArrowDown size={14} />
+        <a href="/workspace" aria-label="Open research workspace">
+          <ArrowRight size={14} />
           <span>Research desk</span>
         </a>
         <button
