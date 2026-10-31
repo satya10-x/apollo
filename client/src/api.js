@@ -1,8 +1,15 @@
+// Public backend origin only; provider credentials must stay on the server.
+const apiOrigin = (import.meta.env.VITE_API_URL || "").trim().replace(/\/+$/, "");
+
+export function apiUrl(path) {
+  return `${apiOrigin}/api${path}`;
+}
+
 export async function api(path, options = {}) {
   let response;
   const { timeoutMs = 20000, ...requestOptions } = options;
   try {
-    response = await fetch(`/api${path}`, {
+    response = await fetch(apiUrl(path), {
       ...requestOptions,
       signal: options.signal || AbortSignal.timeout(timeoutMs),
       headers: { "Content-Type": "application/json", ...options.headers },
@@ -26,7 +33,7 @@ export async function downloadReport(sessionId, format) {
   let response;
   try {
     response = await fetch(
-      `/api/sessions/${sessionId}/report/export?format=${format}`,
+      apiUrl(`/sessions/${sessionId}/report/export?format=${format}`),
     );
   } catch {
     throw new Error("Cannot reach the export service.");

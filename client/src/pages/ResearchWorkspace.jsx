@@ -10,7 +10,7 @@ import {
   Activity,
   Search,
 } from "lucide-react";
-import { api } from "../api";
+import { api, apiUrl } from "../api";
 import {
   PageHeading,
   Loading,
@@ -96,7 +96,7 @@ export default function ResearchWorkspace() {
   useEffect(() => {
     if (!session || terminal) return;
     let refreshTimer;
-    const stream = new EventSource(`/api/sessions/${id}/events`);
+    const stream = new EventSource(apiUrl(`/sessions/${id}/events`));
     stream.onopen = () => setLive(true);
     stream.onmessage = (e) => {
       try {

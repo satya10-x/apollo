@@ -4,8 +4,8 @@ import { env } from "./config/env.js";
 import { shutdownResearch } from "./services/research.js";
 import { ResearchSession } from "./models/index.js";
 const bootedAt = new Date();
-const server = app.listen(env.PORT, "127.0.0.1", () =>
-  console.log(`Apollo API: http://127.0.0.1:${env.PORT}`),
+const server = app.listen(env.PORT, env.HOST, () =>
+  console.log(`Apollo API: http://${env.HOST}:${env.PORT}`),
 );
 let closing = false,
   reconnectTimer,

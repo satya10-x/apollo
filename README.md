@@ -21,7 +21,15 @@ npm run build
 npm start
 ```
 
-After building, Express serves the React application and API together at http://127.0.0.1:4000. Set CLIENT_URL to that origin when running the production build. This foundation intentionally binds to loopback and has no authentication; add authentication, user ownership checks, rate limits and a durable worker before exposing it publicly.
+After building, Express serves the React application and API together at http://127.0.0.1:4000. Set CLIENT_URL to that origin when running the production build. HOST defaults to loopback locally and `0.0.0.0` when `NODE_ENV=production`; an explicit HOST overrides this default outside Render. On Render (`RENDER=true`), HOST is always `0.0.0.0` so stale loopback settings cannot prevent port detection. This foundation has no authentication; add authentication, user ownership checks, rate limits and a durable worker before exposing it publicly.
+
+## Vercel frontend + Render backend
+
+1. Deploy the repository root as a Render Node web service: build `npm ci --include=dev`, start `npm start`, Node.js 22+. Set `HOST=0.0.0.0`, `NODE_ENV=production`, `CLIENT_URL=https://your-project.vercel.app` (origin only, no trailing slash), MongoDB URI and server-side provider credentials. Let Render supply `PORT`. Health check: `/api/health`.
+2. Deploy Vercel with root `client`, build `npm run build`, output `dist`. Set `VITE_API_URL=https://your-backend.onrender.com` (without `/api`). Redeploy after changing this variable because Vite embeds it at build time.
+3. Verify the backend health response shows `database: connected` and `researchConfigured: true`, then start research from the frontend. API requests, SSE and report downloads all use the configured backend origin. The client Vercel config handles direct visits to research/report routes.
+
+Leave `VITE_API_URL` unset for local development or a combined Express deployment. For a local separate-origin client, copy `client/.env.example` to `client/.env.local`. Provider credentials belong only on Render, never in Vercel's `VITE_` variables. Use one persistent backend instance for the current in-memory research jobs and SSE streams.
 
 ## Environment
 

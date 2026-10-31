@@ -66,7 +66,17 @@ const schema = z.object({
     .min(3000)
     .max(60000)
     .default(3000),
+  HOST: z.string().min(1).default(
+    process.env.RENDER === "true" || process.env.NODE_ENV === "production"
+      ? "0.0.0.0"
+      : "127.0.0.1",
+  ),
   PORT: z.coerce.number().int().min(1).max(65535).default(4000),
   CLIENT_URL: z.url().default("http://127.0.0.1:5173"),
 });
-export const env = Object.freeze(schema.parse(process.env));
+// Render's public proxy cannot reach a loopback listener, even if an old
+// HOST value was copied into its environment or the root .env file.
+export const env = Object.freeze(schema.parse({
+  ...process.env,
+  ...(process.env.RENDER === "true" ? { HOST: "0.0.0.0" } : {}),
+}));
