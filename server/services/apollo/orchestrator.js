@@ -1,3 +1,4 @@
+import { providerDiagnostic } from "../provider-errors.js";
 import { blueprintSchema } from "./schemas.js";
 import {
   resolveLimits,
@@ -258,12 +259,15 @@ export function createOrchestrator({ repository, providers, now = Date.now }) {
             if (error instanceof ExecutionStopped) throw error;
             task.status = "skipped";
             task.reason = "finding_synthesis_failed";
+            task.providerError = providerDiagnostic(error);
             task.retrievalWarnings.push(
               "Retrieved evidence is available, but structured finding synthesis failed. Hermes must inspect the actual records without assuming claim support.",
             );
             await checkpoint(
               "Apollo",
-              "Athena synthesis failed. Preserving the retrieved evidence for Hermes review.",
+              task.providerError
+                ? `Athena synthesis failed: ${task.providerError.reason}`
+                : "Athena synthesis failed. Preserving the retrieved evidence for Hermes review.",
             );
             continue;
           }

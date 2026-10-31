@@ -8,6 +8,7 @@ import {
   blueprintContext,
   buildCorpus,
   sectionBatches,
+  splitAuditBatch,
   sourceContext,
   evidenceContext,
   fingerprint,
@@ -16,6 +17,7 @@ import {
 } from "./context.js";
 import { calculateQuality, completionDecision } from "./quality.js";
 import { ExecutionStopped } from "../apollo/errors.js";
+import { providerDiagnostic } from "../provider-errors.js";
 const priority = { high: 0, medium: 1, low: 2 };
 const citation = (item, corpus) => ({
   ...item,
@@ -111,6 +113,16 @@ export async function performReview({
           operation: "section_audit",
         });
       } catch (error) {
+        if (error.code === "provider_request_too_large") {
+          const smaller = splitAuditBatch(batch);
+          if (smaller.length) {
+            batches.push(...smaller);
+            await onProgress(
+              "Provider request size limit reached. Retrying smaller evidence audit batches.",
+            );
+            continue;
+          }
+        }
         if (error instanceof ExecutionStopped) {
           if (error.code === "cancelled" || error.code === "server_shutdown")
             throw error;
@@ -118,10 +130,12 @@ export async function performReview({
         }
         errors.push({
           sectionId: section.id,
+          ...providerDiagnostic(error),
           reason:
             error instanceof ExecutionStopped
               ? error.message
-              : "The structured section audit could not be completed.",
+              : providerDiagnostic(error)?.reason ||
+                "The structured section audit could not be completed.",
         });
       }
     }
@@ -324,7 +338,9 @@ export async function performReview({
         limitReason = error.code;
       }
       errors.push({
+        ...providerDiagnostic(error),
         reason:
+          providerDiagnostic(error)?.reason ||
           "Cross-source comparison did not finish; absence of conflicts is not assumed.",
       });
     }

@@ -248,3 +248,181 @@ test("explicit pre-generation rejections release token reservations for the conf
   assert.equal(b.state.usage.rejectedRequests, 1);
   assert.equal(b.state.usage.estimatedTokens, 0);
 });
+
+test("429 retries honor Retry-After beyond 30 seconds and release rejected reservations", async () => {
+  let time = Date.now(),
+    calls = 0;
+  const waits = [];
+  const b = budget();
+  b.now = () => time;
+  b.state.deadlineAt = new Date(time + 120000);
+  const service = createProviderService({
+    config: { ...config, GEMINI_FALLBACK_ENABLED: false },
+    now: () => time,
+    sleep: async (ms) => {
+      waits.push(ms);
+      time += ms;
+    },
+    fetchImpl: async () =>
+      ++calls === 1
+        ? new Response("{}", { status: 429, headers: { "retry-after": "45" } })
+        : response({
+            choices: [{ message: { content: '{"answer":"Recovered"}' } }],
+            usage: { prompt_tokens: 20, total_tokens: 30 },
+          }),
+  });
+  await service.generateJSON({
+    system: "Return JSON",
+    input: {},
+    schema,
+    budget: b,
+  });
+  assert.deepEqual(waits, [45000]);
+  assert.equal(calls, 2);
+  assert.equal(b.state.usage.rejectedRequests, 1);
+  assert.equal(b.state.usage.tokensCharged, 30);
+});
+
+test("a throttled primary uses fallback immediately and shares cooldown with later calls", async () => {
+  const calls = [];
+  const service = createProviderService({
+    config,
+    sleep: async () => assert.fail("Available fallback must not wait"),
+    fetchImpl: async (url) => {
+      calls.push(url);
+      return url.includes("groq.com")
+        ? new Response("{}", { status: 429, headers: { "retry-after": "60" } })
+        : response({
+            candidates: [
+              { content: { parts: [{ text: '{"answer":"Fallback"}' }] } },
+            ],
+          });
+    },
+  });
+  for (let n = 0; n < 2; n++) {
+    const result = await service.generateJSON({
+      system: "Return JSON",
+      input: {},
+      schema,
+      budget: budget(),
+    });
+    assert.equal(result.provider, "gemini");
+  }
+  assert.equal(calls.filter((url) => url.includes("groq.com")).length, 1);
+  assert.equal(calls.length, 3);
+});
+
+test("a cooldown beyond the deadline fails clearly without sleeping or sending more requests", async () => {
+  let calls = 0;
+  const service = createProviderService({
+    config: { ...config, GEMINI_FALLBACK_ENABLED: false },
+    sleep: async () => assert.fail("Must not wait beyond deadline"),
+    fetchImpl: async () => {
+      calls++;
+      return new Response("{}", {
+        status: 429,
+        headers: { "retry-after": "3600" },
+      });
+    },
+  });
+  for (let n = 0; n < 2; n++) {
+    await assert.rejects(
+      service.generateJSON({
+        system: "Return JSON",
+        input: {},
+        schema,
+        budget: budget(),
+      }),
+      { code: "provider_rate_limit", httpStatus: 429 },
+    );
+  }
+  assert.equal(calls, 1);
+});
+
+test("persistent throttling has a bounded retry count", async () => {
+  let time = Date.now(),
+    calls = 0;
+  const b = budget();
+  b.now = () => time;
+  const service = createProviderService({
+    config: { ...config, GEMINI_FALLBACK_ENABLED: false },
+    now: () => time,
+    sleep: async (ms) => {
+      time += ms;
+    },
+    fetchImpl: async () => {
+      calls++;
+      return new Response("{}", {
+        status: 429,
+        headers: { "retry-after": "1" },
+      });
+    },
+  });
+  await assert.rejects(
+    service.generateJSON({
+      system: "Return JSON",
+      input: {},
+      schema,
+      budget: b,
+    }),
+    { code: "provider_rate_limit" },
+  );
+  assert.equal(calls, 2);
+  assert.equal(b.state.usage.tokensCharged, 0);
+});
+
+test("cancellation during provider cooldown prevents retry", async () => {
+  const controller = new AbortController();
+  const b = new ExecutionBudget(budget().state, { signal: controller.signal });
+  let calls = 0;
+  const service = createProviderService({
+    config: { ...config, GEMINI_FALLBACK_ENABLED: false },
+    sleep: async (ms, value, { signal }) => {
+      controller.abort();
+      signal.throwIfAborted();
+    },
+    fetchImpl: async () => {
+      calls++;
+      return new Response("{}", {
+        status: 429,
+        headers: { "retry-after": "1" },
+      });
+    },
+  });
+  await assert.rejects(
+    service.generateJSON({
+      system: "Return JSON",
+      input: {},
+      schema,
+      budget: b,
+    }),
+    { code: "cancelled" },
+  );
+  assert.equal(calls, 1);
+});
+
+test("oversized requests are not retried and retain a safe actionable diagnostic", async () => {
+  let calls = 0;
+  const service = createProviderService({
+    config: { ...config, GEMINI_FALLBACK_ENABLED: false },
+    fetchImpl: async () => {
+      calls++;
+      return response({ error: { message: "private provider payload" } }, 413);
+    },
+  });
+  await assert.rejects(
+    service.generateJSON({
+      system: "Return JSON",
+      input: {},
+      schema,
+      budget: budget(),
+    }),
+    (error) => {
+      assert.equal(error.code, "provider_request_too_large");
+      assert.equal(error.httpStatus, 413);
+      assert.ok(!error.message.includes("private provider payload"));
+      return true;
+    },
+  );
+  assert.equal(calls, 1);
+});

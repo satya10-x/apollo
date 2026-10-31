@@ -434,3 +434,26 @@ test("unverified claim text is not republished as a factual evidence limitation"
   assert.ok(!data.limitations.includes(f.state.gaps[0]));
   assert.ok(data.limitations.includes(f.state.gapDetails[0].reason));
 });
+
+test("provider-blocked reviews stop before writing and expose the actual provider reason", async () => {
+  const f = await reportFixture();
+  f.state.reviews[0].claimReviews = [];
+  f.state.reviews[0].inspection.errors = [
+    {
+      provider: "groq",
+      code: "provider_rate_limit",
+      httpStatus: 429,
+      reason: "groq returned HTTP 429. Retry after the provider cooldown.",
+    },
+  ];
+  await assert.rejects(
+    build(f, {
+      onCall: () => assert.fail("Must not write unreviewed evidence"),
+    }),
+    (error) => {
+      assert.equal(error.code, "provider_rate_limit");
+      assert.match(error.message, /HTTP 429/);
+      return true;
+    },
+  );
+});

@@ -442,3 +442,66 @@ test("provider audit failures preserve collected-source counts while exposing ze
   assert.equal(data.quality.score, 0);
   assert.notEqual(data.decision, "COMPLETE");
 });
+
+test("Hermes preserves safe provider failure reasons instead of hiding them as unsupported evidence", async () => {
+  const { ProviderError } = await import("../services/provider-errors.js");
+  const result = await performReview({
+    ...hermesFixture(),
+    providers: {
+      generateJSON: async () => {
+        throw new ProviderError(
+          "groq",
+          "provider_rate_limit",
+          "groq returned HTTP 429. Retry after the provider cooldown.",
+          { httpStatus: 429, retryAt: 1000 },
+        );
+      },
+    },
+  });
+  assert.equal(result.data.inspection.reviewedClaims, 0);
+  assert.ok(
+    result.data.inspection.errors.every(
+      (error) =>
+        error.code === "provider_rate_limit" && error.httpStatus === 429,
+    ),
+  );
+  assert.ok(
+    result.data.limitations.some((message) => message.includes("HTTP 429")),
+  );
+  assert.ok(
+    result.data.claimReviews.every(
+      (claim) => claim.reviewStatus === "not_reviewed",
+    ),
+  );
+});
+
+test("oversized Hermes audits split into smaller citation-complete batches", async () => {
+  const { ProviderError } = await import("../services/provider-errors.js");
+  const f = hermesFixture();
+  let rejected = 0;
+  const provider = hermesProvider();
+  const result = await performReview({
+    ...f,
+    providers: {
+      generateJSON: async (options) => {
+        if (
+          options.system.includes("HERMES_SECTION_AUDIT") &&
+          options.input.evidence.length > 1
+        ) {
+          rejected++;
+          throw new ProviderError(
+            "groq",
+            "provider_request_too_large",
+            "Request too large.",
+            { httpStatus: 413 },
+          );
+        }
+        return provider.generateJSON(options);
+      },
+    },
+  });
+  assert.ok(rejected > 0);
+  assert.equal(result.data.inspection.reviewedClaims, 4);
+  assert.equal(result.data.inspection.inspectedEvidenceRecords, 8);
+  assert.equal(result.data.inspection.errors.length, 0);
+});

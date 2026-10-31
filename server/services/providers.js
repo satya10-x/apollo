@@ -4,6 +4,7 @@ import { createSearchService } from "./athena/search.js";
 import { env } from "../config/env.js";
 import { AppError } from "../middleware/errors.js";
 import { ExecutionStopped } from "./apollo/errors.js";
+import { ProviderError, retryDelay } from "./provider-errors.js";
 function tokenUsage(data, provider) {
   const raw = provider === "groq" ? data.usage : data.usageMetadata;
   if (!raw) return undefined;
@@ -53,7 +54,11 @@ export function costBudgetAvailable(config = env) {
 export function createProviderService({
   config = env,
   fetchImpl = globalThis.fetch,
+  now = Date.now,
+  sleep = delay,
 } = {}) {
+  // Shared across sessions using this service: new tasks respect a known cooldown.
+  const cooldowns = new Map();
   async function generateJSON({
     system,
     input,
@@ -72,8 +77,9 @@ export function createProviderService({
         : []),
     ];
     let lastError;
-    // One bounded primary retry for temporary throttling; configured fallback is immediate.
-    const attempts = providers.length > 1 ? providers : ["groq", "groq"];
+    // Try configured alternatives first, then retry a throttled provider once.
+    const attempts = [...providers];
+    const retried = new Set();
     for (let attempt = 0; attempt < attempts.length; attempt++) {
       const provider = attempts[attempt];
       budget.check();
@@ -85,6 +91,36 @@ export function createProviderService({
           503,
         );
         continue;
+      }
+      const retryAt = cooldowns.get(provider) || 0;
+      const waitMs = retryAt - now();
+      if (waitMs > 0) {
+        const remainingMs = new Date(budget.state.deadlineAt).getTime() - now();
+        lastError = new ProviderError(
+          provider,
+          "provider_rate_limit",
+          `${provider} is rate limited. Evidence is saved; retry after the provider cooldown or use another configured provider.`,
+          { httpStatus: 429, retryAt },
+        );
+        // Don't consume the execution deadline waiting on an unavailable provider
+        // while an alternative can still answer.
+        if (attempts.slice(attempt + 1).some((other) => other !== provider)) {
+          if (!retried.has(provider)) {
+            attempts.push(provider);
+            retried.add(provider);
+          }
+          continue;
+        }
+        if (waitMs >= remainingMs) continue;
+        try {
+          await sleep(waitMs, undefined, {
+            signal: budget.requestSignal(waitMs + 1000),
+          });
+        } catch (error) {
+          budget.check();
+          throw error;
+        }
+        budget.check();
       }
       const pricing = pricingFor(config, provider);
       const maxOutputTokens = Math.min(
@@ -150,28 +186,31 @@ export function createProviderService({
             budget.rejectLLM(reservation);
             accounted = true;
           }
-          if (
-            response.status === 429 &&
-            provider === "groq" &&
-            attempts[attempt + 1] === "groq"
-          ) {
-            const retryAfter = Number(response.headers.get("retry-after") || 5);
-            const waitMs = Math.min(
-              30000,
-              Math.max(
-                1000,
-                (Number.isFinite(retryAfter) ? retryAfter : 5) * 1000,
-              ),
+          if (response.status === 429) {
+            const retryAt = now() + Math.max(1000, retryDelay(response, now()));
+            cooldowns.set(
+              provider,
+              Math.max(cooldowns.get(provider) || 0, retryAt),
             );
-            await delay(waitMs, undefined, { signal: budget.signal });
-            budget.check();
+            lastError = new ProviderError(
+              provider,
+              "provider_rate_limit",
+              `${provider} returned HTTP 429. Provider rate limit reached; evidence is saved. Retry after the provider cooldown or configure another provider.`,
+              { httpStatus: 429, retryAt },
+            );
+            if (!retried.has(provider)) {
+              attempts.push(provider);
+              retried.add(provider);
+            }
             continue;
           }
-          // Do not repeat invalid credentials, oversized input or non-retryable failures.
-          if (attempts[attempt + 1] === "groq") attempts.splice(attempt + 1, 1);
-          throw new AppError(
-            `${provider} returned HTTP ${response.status}. ${response.status === 429 ? "Provider rate limit reached; retry later or configure the Gemini fallback." : response.status === 413 ? "The model request exceeds this provider tier’s size limit. Configure Gemini fallback or a higher provider limit." : "Check provider configuration or availability."}`,
-            502,
+          throw new ProviderError(
+            provider,
+            response.status === 413
+              ? "provider_request_too_large"
+              : "provider_unavailable",
+            `${provider} returned HTTP ${response.status}. ${response.status === 413 ? "The model request exceeds this provider tier’s size limit. Configure a provider with a larger context allowance." : "Check provider configuration or availability."}`,
+            { httpStatus: response.status },
           );
         }
         const data = await response.json();
@@ -196,13 +235,13 @@ export function createProviderService({
         if (!accounted) budget.state.usage.unreportedRequests++;
         budget.check();
         if (error instanceof ExecutionStopped) throw error;
-        if (attempts[attempt + 1] === "groq") attempts.splice(attempt + 1, 1);
         lastError =
           error instanceof AppError
             ? error
-            : new AppError(
+            : new ProviderError(
+                provider,
+                "provider_invalid_output",
                 `${provider} returned invalid structured output or the request failed.`,
-                502,
               );
       }
     }

@@ -28,6 +28,25 @@ export async function generateReport({
       "Apollo must finish the research decision before starting section writers.",
     );
   budget.check();
+  const latestReview = state.reviews.at(-1);
+  const providerFailure = latestReview.inspection.errors?.find(
+    (error) => error.provider && error.code,
+  );
+  if (
+    providerFailure &&
+    !latestReview.claimReviews?.some(
+      (claim) =>
+        claim.reviewStatus === "reviewed" &&
+        ["SUPPORTED", "PARTIALLY_SUPPORTED", "CONFLICTING"].includes(
+          claim.classification,
+        ),
+    )
+  ) {
+    throw new ExecutionStopped(
+      providerFailure.code,
+      `Hermes could not verify the retrieved evidence. ${providerFailure.reason} Sources and activity are saved; no unverified report was published.`,
+    );
+  }
   const corpus = reportCorpus(state, sources, evidence),
     drafts = [],
     calls = [];

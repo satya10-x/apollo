@@ -194,3 +194,36 @@ export function blueprintContext(blueprint) {
     })),
   };
 }
+
+// Split oversized audits without detaching a claim from any of its citations.
+// Each child must be strictly smaller so retries cannot recurse indefinitely.
+export function splitAuditBatch(batch) {
+  const groups = [];
+  const assigned = new Set();
+  for (const claim of batch.claims) {
+    const ids = new Set(claim.evidenceIds);
+    const evidence = batch.evidence.filter((item) => ids.has(String(item._id)));
+    evidence.forEach((item) => assigned.add(String(item._id)));
+    groups.push({ claims: [claim], evidence });
+  }
+  for (const item of batch.evidence) {
+    if (!assigned.has(String(item._id)))
+      groups.push({ claims: [], evidence: [item] });
+  }
+  if (
+    groups.length < 2 ||
+    groups.some(
+      (group) =>
+        group.claims.length >= batch.claims.length &&
+        group.evidence.length >= batch.evidence.length,
+    )
+  )
+    return [];
+  return groups.map((group) => ({
+    section: batch.section,
+    ...group,
+    sources: batch.sources.filter((source) =>
+      group.evidence.some((item) => String(item.source) === String(source._id)),
+    ),
+  }));
+}

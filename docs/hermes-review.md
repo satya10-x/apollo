@@ -99,3 +99,24 @@ No existing session data is reseeded or rewritten. Older title-only plans and re
 `npm test` covers real review/validation/scoring code using deterministic provider fixtures, including missing and corrupted evidence, fabricated quotes, invalid references, partial/unsupported claims, contextual/genuine conflicts, missing dimensions, source concerns, budget limits, cache invalidation and application stopping behavior. Fixtures are not loaded into the application.
 
 `npm run verify:hermes` is an opt-in, API-consuming check of the real Apollo→Athena→Hermes pipeline in a uniquely named temporary MongoDB database. It uses one bounded Quick session with at most one source and two searches to verify explicit incomplete-evidence handling, checks persisted evidence-level review and quality fields, and removes only its temporary database. It does not add sessions or reports to application history. Live provider availability and model response validity may stop an upstream stage before Hermes; the script reports that stop rather than substituting fake evidence.
+
+### Provider rejection recovery
+
+Model throttling is separate from research coverage. The provider service honors
+`Retry-After` (seconds or HTTP date), or exhausted-resource reset durations, and
+shares known cooldowns across requests in the same server process. It tries a
+configured alternative before waiting, retries each throttled provider at most
+once per operation, and never waits past the execution deadline. Cancellation
+interrupts the wait. This is process-local coordination, not a distributed quota
+manager. Rejected inference requests release their token reservations.
+
+Hermes splits an oversized section audit into smaller batches when possible,
+keeping each claim attached to all its cited passages and validating every child
+response normally. An indivisible oversized claim still fails explicitly.
+Provider diagnostics persist safe application-authored reason codes, HTTP status
+and retry times; provider response bodies and credentials are not stored.
+If no claims can be verified because the provider failed, report generation
+surfaces that failure instead of replacing it with a generic evidence/round-limit
+message. Partial reviewed findings retain the existing publication checks.
+Already-failed sessions retain their saved evidence and status; these changes
+apply on a new research run after deploying the backend.
